@@ -1,21 +1,23 @@
 package io.blockv.faces
 
+import android.annotation.TargetApi
 import android.graphics.Color
+import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.JavascriptInterface
-import android.webkit.WebView
+import android.webkit.*
 import io.blockv.common.model.Face
+import io.blockv.common.model.Resource
 import io.blockv.common.model.Vatom
 import io.blockv.face.client.FaceBridge
 import io.blockv.face.client.FaceView
 import io.blockv.face.client.ViewFactory
 import org.json.JSONArray
 import org.json.JSONObject
-import java.lang.Exception
 
 class Face3D(vatom: Vatom, face: Face, bridge: FaceBridge) : FaceView(vatom, face, bridge) {
 
@@ -38,7 +40,7 @@ class Face3D(vatom: Vatom, face: Face, bridge: FaceBridge) : FaceView(vatom, fac
     }
 
     /** The web view which renders our content */
-    private var webView : WebView? = null
+    private var webView: WebView? = null
 
     /** Reference to the main thread */
     private val mainThread = Handler(Looper.getMainLooper())
@@ -59,6 +61,80 @@ class Face3D(vatom: Vatom, face: Face, bridge: FaceBridge) : FaceView(vatom, fac
         webView?.settings?.javaScriptEnabled = true
         webView?.settings?.allowFileAccessFromFileURLs = true
         webView?.settings?.allowUniversalAccessFromFileURLs = true
+
+        webView?.webViewClient = object : WebViewClient() {
+
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                url: String?
+            ): WebResourceResponse? {
+                if (url != null) {
+                    return interceptRequest(Uri.parse(url)) ?: super.shouldInterceptRequest(
+                        view,
+                        url
+                    )
+                }
+                return null
+            }
+
+            @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                if (request != null) {
+                    val original = request.url
+                    return interceptRequest(original) ?: super.shouldInterceptRequest(view, request)
+                }
+                return null
+            }
+
+            fun interceptRequest(original: Uri): WebResourceResponse? {
+                val clearedUrl = original
+                    .buildUpon()
+                    .clearQuery()
+                    .build()
+                    .toString()
+                // Override downloads for .glb and .v3d files
+                if (clearedUrl.endsWith(".glb", true) || clearedUrl.endsWith(".v3d", true)) {
+                    try {
+                        //Remove encoding params
+                        val encoded = Uri.parse(
+                            bridge.resourceManager.resourceEncoder.encodeUrl(clearedUrl)
+                        )
+                        val params = encoded.queryParameterNames
+                        val out = original
+                            .buildUpon()
+                            .clearQuery()
+                        for (param in original.queryParameterNames) {
+                            if (!params.contains(param)) {
+                                out.appendQueryParameter(
+                                    param,
+                                    original.getQueryParameter(param)
+                                )
+                            }
+                        }
+
+                        return WebResourceResponse(
+                            "application/octet-stream",
+                            null,
+                            // Download asset using resource manager
+                            bridge.resourceManager.getInputStream(
+                                Resource(
+                                    "scene",
+                                    "",
+                                    out.build().toString()
+                                )
+                            ).blockingGet()
+                        )
+
+                    } catch (e: Exception) {
+                    }
+                }
+                return null
+            }
+
+        }
 
         // Allow the web app to access certain functions on this class instance via the `nativeFace` global property
         webView?.addJavascriptInterface(this, "nativeBridge")
@@ -121,7 +197,7 @@ class Face3D(vatom: Vatom, face: Face, bridge: FaceBridge) : FaceView(vatom, fac
     }
 
     /** Returns the vAtom payload */
-    private fun getVatomPayload(vatom : Vatom) : JSONObject {
+    private fun getVatomPayload(vatom: Vatom): JSONObject {
 
         // Create vatom payload
         // HACK: We don't have access to the actual raw vatom payload. Recreate it as best we can with the fields
@@ -165,7 +241,8 @@ class Face3D(vatom: Vatom, face: Face, bridge: FaceBridge) : FaceView(vatom, fac
     }
 
     /** Called by the web app. Returns the renderer info */
-    @JavascriptInterface fun getRendererInfo() : String {
+    @JavascriptInterface
+    fun getRendererInfo(): String {
 
         // Create object
         val info = JSONObject()
@@ -194,7 +271,8 @@ class Face3D(vatom: Vatom, face: Face, bridge: FaceBridge) : FaceView(vatom, fac
     }
 
     /** Called by the web app. Signs a resource URL. */
-    @JavascriptInterface fun signURL(id : String, url : String) {
+    @JavascriptInterface
+    fun signURL(id: String, url: String) {
 
         // Catch errors
         try {
@@ -210,7 +288,7 @@ class Face3D(vatom: Vatom, face: Face, bridge: FaceBridge) : FaceView(vatom, fac
 
             }
 
-        } catch (err : Exception) {
+        } catch (err: Exception) {
 
             // Pass error back
             err.printStackTrace()
