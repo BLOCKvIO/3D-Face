@@ -18,7 +18,7 @@ const CAMERA_DISTANCE_MULTIPLIER = 1
 
 module.exports = class Face3D {
 
-    constructor (vatomView, vatom, face) {
+    constructor(vatomView, vatom, face) {
 
         // Store info
         this.vatomView = vatomView
@@ -62,7 +62,7 @@ module.exports = class Face3D {
 
         // Create placeholder image
         this.placeholderImg = document.createElement("div")
-        this.placeholderImg.style.cssText = "position: absolute; pointer-events: none; top: 0px; left: 0px; width: 100%; height: 100%; background-size: contain; background-position: center; background-repeat: no-repeat; "
+        this.placeholderImg.style.cssText = "transition: opacity .5s ease-out; opacity: 1; position: absolute; pointer-events: none; top: 0px; left: 0px; width: 100%; height: 100%; background-size: contain; background-position: center; background-repeat: no-repeat; "
         this.element.appendChild(this.placeholderImg)
 
         // Find correct image resource to display
@@ -73,7 +73,7 @@ module.exports = class Face3D {
 
         // Create loader
         this.loader = createThreeDotLoader()
-        this.loader.style.cssText = "position: absolute; pointer-events: none; bottom: 25%; left: calc(50% - 35px); width: 70px; background-color: rgba(255, 255, 255, 0.95); border-radius: 4px; "
+        this.loader.style.cssText = "position: absolute; pointer-events: none; bottom: 64px; left: calc(50% - 75px); width: 150px; background-color: rgba(255, 255, 255, 0.95); border-radius: 4px; font-size:12px "
         this.element.appendChild(this.loader)
 
         // Prepare 3D
@@ -161,15 +161,20 @@ module.exports = class Face3D {
         var isGLB = (resource.value.value || '').toLowerCase().indexOf(".v3d") == -1
 
         // Load scene
-        return Promise.resolve(this.vatomView.blockv.UserManager.encodeAssetProvider(resource.value.value || '')).then(resourceURL => 
-            isGLB 
-                ? this.loadGLTFScene(resourceURL) 
+        return Promise.resolve(this.vatomView.blockv.UserManager.encodeAssetProvider(resource.value.value || '')).then(resourceURL =>
+            isGLB
+                ? this.loadGLTFScene(resourceURL)
                 : V3DLoader.load(resourceURL).then(scene => ({ scene }))
-        ).then(({ scene, animations }) => {
+        ).then(async ({ scene, animations }) => {
+            // Fade out animation for activated image
+            const setTimeoutPromise = ms => new Promise(resolve => setTimeout(resolve, ms))
+            await setTimeoutPromise(500).then(this.placeholderImg.style.cssText += "opacity: 0")
 
             // Hide loader and placeholder image
             if (this.placeholderImg.parentNode) this.placeholderImg.parentNode.removeChild(this.placeholderImg)
-            if (this.loader.parentNode) this.loader.parentNode.removeChild(this.loader)
+            // if (this.loader.parentNode) {
+            //     setTimeout(() => {this.loader.parentNode.removeChild(this.loader)}, 5000)
+            // }
 
             // Display scene
             this.scene = scene
@@ -274,7 +279,7 @@ module.exports = class Face3D {
             // Create animation manager
             this.animation = new AnimationManager(this.scene, animations, this.options.animation_rules, this.vatom.payload)
 
-        }).then ( e => { this.render() })
+        }).then(e => { this.render() })
 
     }
 
@@ -305,16 +310,47 @@ module.exports = class Face3D {
     /** @private Called to load a GLTF scene */
     loadGLTFScene(url) {
 
+
+        this.element.append(this.loader)
+        let startTime = Date.now()
+        let speeds = []
+
         // Return promise
         return new Promise((onSuccess, onFail) => {
 
+
             // Load scene
             var ldr = new THREE.GLTFLoader()
-            ldr.load(url, onSuccess, null, onFail)
+            ldr.load(url, onSuccess, (e) => {
+                let kbps = (e.loaded / ((Date.now() - startTime) / 1000) / 1000).toFixed(2)
+                if (kbps !== 0)
+                    speeds.push(kbps)
+                let mbps = (kbps / 1000).toFixed(2)
+                let percent = (e.loaded / e.total) * 100
+                let total = (e.total / 1000 / 1000).toFixed(2)
+                this.loader.style.padding = '2px'
+                let time = new Date(null)
+                time.setSeconds(Math.abs((Date.now() - startTime) / 1000))
+
+                let seconds = Math.abs((Date.now() - startTime) / 1000)
+                let timeMilliseconds = Math.floor((seconds % 1) * 1000).toString().padStart(3, '0')
+                let timeSeconds = (time.getSeconds() < 10) ? '0' + time.getSeconds() : time.getSeconds()
+                let timeMinutes = (time.getMinutes() < 10) ? '0' + time.getMinutes() : time.getMinutes()
+
+                // add to the loader text
+                //this.loader.innerHTML = `Loading: ${Math.floor(percent)}%  of ${total} mb <br /> Average: ${(kbps > 999) ? mbps + ' mb/s' : kbps + ' kb/s'} <br /> Total Time: ${timeMinutes}:${timeSeconds}.${timeMilliseconds}`
+
+            }, onFail)
+
+
+
+
 
         })
 
     }
+
+
 
     /** @private @override Called when the face is removed */
     onUnload() {
@@ -382,7 +418,7 @@ module.exports = class Face3D {
         this.animation && this.animation.update(delta)
 
         // Do render
-        
+
         this.renderer.render(this.scene, this.camera)
 
 
